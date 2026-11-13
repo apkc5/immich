@@ -66,18 +66,6 @@ jobs:
       - name: Perform codegen
         run: mise //mobile:codegen
 
-      - name: Save Rust cache
-        uses: actions/cache/save@v4
-        continue-on-error: true
-        with:
-          path: |
-            ~/.rustup/toolchains
-            ~/.rustup/update-hashes
-            ~/.cargo/bin
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: build-mobile-rust-${{ runner.os }}-${{ hashFiles('native/crates/native_core_ffi/rust-toolchain.toml', 'native/Cargo.lock') }}
-
       - name: Resolve iOS Swift Packages
         working-directory: ./mobile
         run: flutter build ios --config-only --no-codesign
