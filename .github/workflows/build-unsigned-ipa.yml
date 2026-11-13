@@ -1,0 +1,104 @@
+name: Build unsigned Immich IPA (test)
+
+# Vanilla (unmodified) Immich v3.4.1 -> unsigned .ipa
+# Based on the official .github/workflows/build-mobile.yml (build-sign-ios job),
+# minus all signing / TestFlight steps (no certificates or secrets needed).
+# The resulting .ipa is UNSIGNED: sign/install it with TrollStore (jailbreak /
+# supported iOS), SideStore/AltStore (re-signs with your Apple ID), or ldid on
+# a jailbroken device.
+#
+# How to use:
+#   1. Fork immich-app/immich on GitHub.
+#   2. In your fork, create a branch from tag v3.4.1 and copy this file to
+#      .github/workflows/build-unsigned-ipa.yml on that branch.
+#   3. Actions tab -> "Build unsigned Immich IPA (test)" -> Run workflow.
+#   4. Download the "immich-v3.4.1-unsigned-ipa" artifact when it finishes.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios-unsigned:
+    name: Build unsigned iOS IPA
+    runs-on: macos-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Select newest available Xcode
+        run: |
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          NEWEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$NEWEST" ]; then
+            sudo xcode-select -s "$NEWEST/Contents/Developer" || true
+          fi
+          xcodebuild -version || true
+
+      - name: Restore Rust cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: build-mobile-rust-${{ runner.os }}-${{ hashFiles('native/crates/native_core_ffi/rust-toolchain.toml', 'native/Cargo.lock') }}
+          restore-keys: |
+            build-mobile-rust-${{ runner.os }}-
+
+      - name: Setup Mise
+        uses: immich-app/devtools/actions/use-mise@caac7f7e4298458a14238959504f411fc6cc7f06 # use-mise-action-v3.2.3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          working_directory: ./mobile
+
+      - name: Install dependencies
+        run: mise //mobile:install:ci
+
+      - name: Perform codegen
+        run: mise //mobile:codegen
+
+      - name: Resolve iOS Swift Packages
+        working-directory: ./mobile
+        run: flutter build ios --config-only --no-codesign
+
+      - name: Build iOS release (no codesign)
+        working-directory: ./mobile
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        working-directory: ./mobile
+        run: |
+          APP="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP" ]; then
+            echo "Runner.app not found, searching..."
+            find build -name "Runner.app" -maxdepth 5 || true
+            exit 1
+          fi
+          echo "=== Runner.app Info.plist ==="
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist" || true
+          rm -rf Payload Immich-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry Immich-unsigned.ipa Payload
+          rm -rf Payload
+          ls -lh Immich-unsigned.ipa
+          unzip -l Immich-unsigned.ipa | head -30
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: immich-v3.4.1-unsigned-ipa
+          path: mobile/Immich-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
