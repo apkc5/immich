@@ -23,7 +23,11 @@ permissions:
 jobs:
   build-ios-unsigned:
     name: Build unsigned iOS IPA
-    runs-on: macos-latest
+    # macos-latest (arm64) runner acquisition kept timing out after ~15 min
+    # ("job was not acquired by Runner of type hosted" + arm64 capacity notices
+    # on runs 2-4). Try the Intel macOS pool instead; iOS arm64 targets build
+    # fine on an Intel host.
+    runs-on: macos-15-intel
     timeout-minutes: 180
 
     steps:
@@ -50,9 +54,9 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/registry
             ~/.cargo/git
-          key: build-mobile-rust-${{ runner.os }}-${{ hashFiles('native/crates/native_core_ffi/rust-toolchain.toml', 'native/Cargo.lock') }}
+          key: build-mobile-rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/crates/native_core_ffi/rust-toolchain.toml', 'native/Cargo.lock') }}
           restore-keys: |
-            build-mobile-rust-${{ runner.os }}-
+            build-mobile-rust-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup Mise
         uses: immich-app/devtools/actions/use-mise@caac7f7e4298458a14238959504f411fc6cc7f06 # use-mise-action-v3.2.3
